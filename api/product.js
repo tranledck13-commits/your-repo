@@ -71,19 +71,39 @@ async function expandShortUrl(url) {
   }
 }
 
-async function getProductData(shopeeUrl) {
-  const apiUrl = `https://data.addlivetag.com/product-data/product-data.php?url=${encodeURIComponent(shopeeUrl)}`;
+async function getProductData(shopeeUrl, itemId) {
+  const apiUrl = new URL(
+    'https://data.addlivetag.com/product-data/product-data.php'
+  );
+
+  if (shopeeUrl) {
+    apiUrl.searchParams.set('url', shopeeUrl);
+  } else {
+    apiUrl.searchParams.set('item_id', itemId);
+  }
 
   const res = await fetch(apiUrl, {
+    method: 'GET',
     headers: {
       'user-agent': USER_AGENT,
       'accept': 'application/json',
+      'X-API-Key': process.env.ADDLIVETAG_API_KEY,
     },
+    signal: AbortSignal.timeout(20000),
+    redirect: 'error',
   });
 
-  if (!res.ok) throw new Error(`API loi: ${res.status}`);
+  if (!res.ok) {
+    throw new Error('Khong lay duoc thong tin san pham');
+  }
 
-  return await res.json();
+  const data = await res.json();
+
+  if (data?.status !== 'success' || !data.productInfo) {
+    throw new Error('Khong lay duoc thong tin san pham');
+  }
+
+  return data;
 }
 
 function pickProductInfo(data, resolvedUrl) {
@@ -107,17 +127,38 @@ function pickProductInfo(data, resolvedUrl) {
 }
 
 export default async function handler(req, res) {
+  res.setHeader('Cache-Control', 'no-store');
+
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
 
-  const rawUrl = Array.isArray(req.query.url) ? req.query.url[0] : req.query.url;
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({
+      status: 'error',
+      error: 'Chi ho tro GET',
+    });
+  }
 
-  if (!rawUrl) {
+  const rawUrl = Array.isArray(req.query?.url)
+    ? req.query.url[0]
+    : req.query?.url;
+
+  const itemId = req.query?.item_id;
+
+  if (!rawUrl && !(typeof itemId === 'string' && /^\d+$/.test(itemId))) {
     return res.status(400).json({
       status: 'error',
-      error: 'Thieu tham so url',
+      error: 'Thieu tham so url hoac item_id hop le',
+    });
+  }
+
+  if (!process.env.ADDLIVETAG_API_KEY?.trim()) {
+    return res.status(503).json({
+      status: 'error',
+      error: 'May chu chua cau hinh API lay thong tin san pham',
     });
   }
 
@@ -130,16 +171,16 @@ export default async function handler(req, res) {
       resolvedUrl = normalizeShopeeProductUrl(resolvedUrl);
     }
 
-    const data = await getProductData(resolvedUrl);
+    const data = await getProductData(resolvedUrl, itemId);
 
     return res.status(200).json({
       status: 'success',
       productInfo: pickProductInfo(data, resolvedUrl),
     });
-  } catch (error) {
+  } catch {
     return res.status(500).json({
       status: 'error',
-      error: error.message,
+      error: 'Khong lay duoc thong tin san pham',
     });
   }
 }
