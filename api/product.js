@@ -72,15 +72,9 @@ async function expandShortUrl(url) {
 }
 
 async function getProductData(shopeeUrl, itemId) {
-  const apiUrl = new URL(
-    'https://data.addlivetag.com/product-data/product-data.php'
-  );
-
-  if (shopeeUrl) {
-    apiUrl.searchParams.set('url', shopeeUrl);
-  } else {
-    apiUrl.searchParams.set('item_id', itemId);
-  }
+  const apiUrl = new URL('https://data.addlivetag.com/product-data/product-data.php');
+  if (shopeeUrl) apiUrl.searchParams.set('url', shopeeUrl);
+  else apiUrl.searchParams.set('item_id', itemId);
 
   const res = await fetch(apiUrl, {
     method: 'GET',
@@ -93,16 +87,12 @@ async function getProductData(shopeeUrl, itemId) {
     redirect: 'error',
   });
 
-  if (!res.ok) {
-    throw new Error('Khong lay duoc thong tin san pham');
-  }
+  if (!res.ok) throw new Error('Khong lay duoc thong tin san pham');
 
   const data = await res.json();
-
   if (data?.status !== 'success' || !data.productInfo) {
     throw new Error('Khong lay duoc thong tin san pham');
   }
-
   return data;
 }
 
@@ -111,6 +101,9 @@ function pickProductInfo(data, resolvedUrl) {
   const ids = extractShopeeIds(source.productLink || resolvedUrl);
 
   return {
+    ...(typeof source.sellerCommissionRate === 'number' || typeof source.sellerCommissionRate === 'string'
+      ? { sellerCommissionRate: source.sellerCommissionRate } : {}),
+    ...(source.sellerComFinal != null ? { sellerComFinal: Number(source.sellerComFinal) } : {}),
     itemId: source.itemId || ids.itemId,
     shopId: source.shopId || ids.shopId,
     productName: source.productName || '',
@@ -128,24 +121,16 @@ function pickProductInfo(data, resolvedUrl) {
 
 export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
-
   if (req.method === 'OPTIONS') {
     res.status(200).end();
     return;
   }
-
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET, OPTIONS');
-    return res.status(405).json({
-      status: 'error',
-      error: 'Chi ho tro GET',
-    });
+    return res.status(405).json({ status: 'error', error: 'Chi ho tro GET' });
   }
 
-  const rawUrl = Array.isArray(req.query?.url)
-    ? req.query.url[0]
-    : req.query?.url;
-
+  const rawUrl = Array.isArray(req.query?.url) ? req.query.url[0] : req.query?.url;
   const itemId = req.query?.item_id;
 
   if (!rawUrl && !(typeof itemId === 'string' && /^\d+$/.test(itemId))) {
@@ -154,7 +139,6 @@ export default async function handler(req, res) {
       error: 'Thieu tham so url hoac item_id hop le',
     });
   }
-
   if (!process.env.ADDLIVETAG_API_KEY?.trim()) {
     return res.status(503).json({
       status: 'error',
